@@ -1,0 +1,418 @@
+{
+  "name": "ACADEMICS - Corretor de Atividade",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "upload-binario",   
+        "responseMode": "responseNode",
+        "options": {
+          "binaryData": true,
+          "binaryPropertyName": "file"
+        }
+      },
+      "id": "cd52f2c2-d956-4b2c-b267-39a71dd78813",
+      "name": "Webhook → Upload Binário",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -1744,
+        4384
+      ],
+      "webhookId": "76469850-55f2-4df1-a0d6-145c89bcf168"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\n\n// Garante que temos o binary.file\nconst file = item.binary?.file;\n\nif (!file) {\n  return [{\n    json: {\n      status: 'erro',\n      mensagem: 'Nenhum arquivo encontrado em binary.file.',\n    }\n  }];\n}\n\n// Tenta pegar a extensão do fileExtension ou do fileName\nlet ext = file.fileExtension;\n\nif (!ext && file.fileName) {\n  const partes = file.fileName.split('.');\n  if (partes.length > 1) {\n    ext = partes.pop();\n  }\n}\n\next = (ext || '').toLowerCase();\n\n// Extensões permitidas\nconst permitidas = ['xls', 'xlsx', 'xlsm', 'doc', 'docx', 'ppt', 'pptx', 'pdf'];\n\nconst extensaoValida = permitidas.includes(ext);\n\n// Retorna mantendo o binary para os próximos nodes\nreturn [{\n  json: {\n    status: extensaoValida ? 'ok' : 'erro',\n    extensaoValida,\n    ext,\n    fileName: file.fileName,\n    mimeType: file.mimeType\n  },\n  binary: item.binary\n}];\n"
+      },
+      "id": "5818e8da-82f0-47f5-a15f-ed469e6171e9",
+      "name": "Code → Resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1568,
+        4384
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.extensaoValida }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "3fc34aed-409f-4e4d-8aa1-74bb6aa34901",
+      "name": "IF: Extensão ok?3",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -1408,
+        4384
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"status\": \"negado\",\n  \"motivo\": \"extensão\", \n  \"msg\": \"Extensão inválida\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -1216,
+        4496
+      ],
+      "id": "56d2b76a-ece6-4b94-b155-53ec55c707d9",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.arquivo_vazio }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "df0dfff1-8282-470e-b007-c312f4a62599",
+      "name": "IF: Extensão ok?4",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -1056,
+        4304
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"status\": \"negado\",\n  \"motivo\": \"vazio\", \n  \"msg\": \"Arquivo em Branco\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -928,
+        4496
+      ],
+      "id": "f1ae9025-4646-4822-9c21-44cc1bc7a8b6",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"OK\",\n  \"msg\": {{ $json.toJsonString() }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        288,
+        4336
+      ],
+      "id": "c2fcfebc-d116-4f6b-b2d7-e0fe910a57f7",
+      "name": "Respond to Webhook2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code → Arquivo Vazio?\n\nconst item = $input.item;\nif (!item.binary || !item.binary.file) {\n  return [\n    {\n      json: {\n        status: 'erro',\n        codigo: 'upload_ausente',\n        mensagem: 'Nenhum arquivo recebido no upload.'\n      }\n    }\n  ];\n}\n\nconst fileBin = item.binary.file;\nconst fileName = fileBin.fileName || 'arquivo';\nconst mimeType = fileBin.mimeType || 'desconhecido';\nconst ext = (fileBin.fileExtension || fileName.split('.').pop() || '')\n  .toLowerCase();\n\n// Pega o buffer real do arquivo salvo no filesystem-v2\nconst buf = await this.helpers.getBinaryDataBuffer(0, 'file');\nconst size = buf.length;\n\n// Heurística de \"limiar por extensão\"\n// Esses valores são apenas ponto de partida – você pode ajustar depois\nconst thresholds = {\n  txt: 1,          // qualquer coisa com 0 bytes é vazio\n  xls: 10000,\n  xlsx: 10000,\n  xlsm: 10000,\n  doc: 8000,\n  docx: 12000,\n  ppt: 15000,\n  pptx: 18000,\n};\n\n// Função específica pra TXT (baseada em texto mesmo)\nfunction isTxtEmpty(buffer) {\n  const txt = buffer.toString('utf8').replace(/\\r\\n/g, '\\n').trim();\n  return txt.length === 0;\n}\n\nlet vazio = false;\nlet metodo = '';\n\n// Decisão por extensão\nif (ext === 'txt') {\n  metodo = 'texto';\n  vazio = isTxtEmpty(buf);\n} else {\n  metodo = 'heuristica_tamanho';\n  const limiar = thresholds[ext] || 1024; // fallback genérico\n  vazio = size <= limiar;\n}\n\nitem.json = {\n  ...(item.json || {}),\n  fileName,\n  mimeType,\n  ext,\n  tamanho_bytes: size,\n  metodo_validacao_vazio: metodo,\n  arquivo_vazio: vazio\n};\n\nreturn item\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1216,
+        4304
+      ],
+      "id": "e725a835-f083-49c7-8a23-87c9f0e141df",
+      "name": "Arquivo em branco?"
+    },
+    {
+      "parameters": {
+        "url": "={{ decodeURIComponent($('Webhook → Upload Binário').item.json.headers[\"url_download\"]) }}",
+        "responseFormat": "file",
+        "dataPropertyName": "modelo",
+        "options": {}
+      },
+      "id": "fbfad7d4-9bb5-4916-8c0f-69220c830fb2",
+      "name": "HTTP → Baixa Modelo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        -384,
+        4320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\n\n// Garantir que temos upload e modelo\nif (!item.binary || !item.binary.file || !item.binary.modelo) {\n  return [{\n    json: {\n      status: 'erro',\n      codigo: 'binarios_ausentes',\n      mensagem: 'Não encontrei upload (binary.file) e/ou modelo (binary.modelo).',\n      binaryKeys: Object.keys(item.binary || {})\n    }\n  }];\n}\n\n// Buffers reais do n8n Cloud\nconst bufUpload = await this.helpers.getBinaryDataBuffer(0, 'file');\nconst bufModelo = await this.helpers.getBinaryDataBuffer(0, 'modelo');\n\nconst lenUpload = bufUpload.length;\nconst lenModelo = bufModelo.length;\n\n// Se qualquer um tiver tamanho 0, já é estranho\nif (lenUpload === 0 || lenModelo === 0) {\n  return [{\n    json: {\n      status: 'erro',\n      codigo: 'arquivo_vazio_similaridade',\n      mensagem: 'Upload ou modelo com tamanho zero, não foi possível comparar.',\n      lenUpload,\n      lenModelo\n    }\n  }];\n}\n\n// 1) Check de idênticos\nlet identicos = false;\nif (lenUpload === lenModelo) {\n  identicos = true;\n  for (let i = 0; i < lenUpload; i++) {\n    if (bufUpload[i] !== bufModelo[i]) {\n      identicos = false;\n      break;\n    }\n  }\n}\n\n// 2) Similaridade aproximada por amostragem de bytes\nconst minLen = Math.min(lenUpload, lenModelo);\nconst sampleLen = Math.min(minLen, 50000); // máximo 50k bytes para comparação\n\nlet diffs = 0;\nfor (let i = 0; i < sampleLen; i++) {\n  if (bufUpload[i] !== bufModelo[i]) {\n    diffs++;\n  }\n}\n\n// Porcentagem de bytes diferentes na amostra\nconst mismatchRatio = sampleLen > 0 ? diffs / sampleLen : 1;\n\n// Razão de tamanhos (o quão parecidos são em tamanho)\nconst sizeRatio = minLen / Math.max(lenUpload, lenModelo);\n\n// Classificação da similaridade\nlet similaridadeNivel = 'baixa';\nlet motivo = 'arquivos com diferenças significativas.';\n\n// Ajuste esses thresholds depois de observar alguns casos reais\nif (identicos) {\n  similaridadeNivel = 'total';\n  motivo = 'arquivos binariamente idênticos ao modelo.';\n} else if (sizeRatio > 0.98 && mismatchRatio < 0.01) {\n  // tamanhos muito parecidos e menos de 1% dos bytes diferentes\n  similaridadeNivel = 'muito_alta';\n  motivo = 'arquivos quase idênticos ao modelo (tamanho e conteúdo muito próximos).';\n} else if (sizeRatio > 0.95 && mismatchRatio < 0.03) {\n  // ainda bastante próximo\n  similaridadeNivel = 'alta';\n  motivo = 'arquivos com alta similaridade estrutural.';\n} else if (sizeRatio > 0.9 && mismatchRatio < 0.1) {\n  similaridadeNivel = 'media';\n  motivo = 'arquivos com alguma similaridade, mas com diferenças relevantes.';\n}\n\n// Monte o JSON de saída\nitem.json = {\n  ...(item.json || {}),\n  status: 'ok',\n  similaridade: {\n    nivel: similaridadeNivel,\n    motivo,\n    identicos,\n    mismatchRatio,\n    sizeRatio,\n    lenUpload,\n    lenModelo\n  }\n};\n\nreturn [item];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -176,
+        4320
+      ],
+      "id": "89876d75-c3b4-4413-9bb0-88bf07f3433b",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"status\": \"negado\",\n  \"msg\": \"Arquivo em Branco\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -224,
+        4720
+      ],
+      "id": "b92f67bf-e80d-4e25-b84d-b6a67c35b848",
+      "name": "Respond to Webhook3"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a0b00c78-3b48-4c66-98b6-2f5322ca067f",
+              "leftValue": "={{ $json.similaridade.nivel }}",
+              "rightValue": "total",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        4320
+      ],
+      "id": "db4864bc-674c-4696-86a7-5e501dc306fb",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"negado\",\n  \"motivo\": \"similaridade\", \n  \"msg\": \"{{ $json.similaridade.nivel }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        48,
+        4528
+      ],
+      "id": "bb8db680-5fd1-4935-9cbb-d9125dffb909",
+      "name": "Respond to Webhook4"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f4477d7b-cfdd-40b6-bb52-89d5ad896a6c",
+              "leftValue": "={{ $('Webhook → Upload Binário').item.json.headers[\"url_download\"] }}",
+              "rightValue": "vazio",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -832,
+        4320
+      ],
+      "id": "26967a7e-3e66-4174-b6ae-b2be1834d023",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"OK\",\n  \"msg\": \"\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -400,
+        4608
+      ],
+      "id": "1f0b61e3-db3f-4afb-89bb-845a4e0fc7a9",
+      "name": "Respond to Webhook5"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook → Upload Binário": {
+      "main": [
+        [
+          {
+            "node": "Code → Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code → Resposta": {
+      "main": [
+        [
+          {
+            "node": "IF: Extensão ok?3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Extensão ok?3": {
+      "main": [
+        [
+          {
+            "node": "Arquivo em branco?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Extensão ok?4": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Arquivo em branco?": {
+      "main": [
+        [
+          {
+            "node": "IF: Extensão ok?4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP → Baixa Modelo": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook4",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook5",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP → Baixa Modelo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "d97acabc-50b7-4e15-9fb7-4f8b662b68cc",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d90a744cee2558844c892e875e4f3601f9011f7774d0f49a4cf8ae3903aa2904"
+  },
+  "id": "14z3i6yj2ZlDeeix",
+  "tags": []
+}
